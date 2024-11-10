@@ -22,7 +22,12 @@ async def on_message(message):
     channel = message.channel
     if message.author == client.user:
         return
-    await channel.send("hello there")
 
+    # nickname = message.author.nick
+    # print(nickname)
+    # await message.author.edit(nick='1')
+    for att in message.attachments:
+        if att.content_type.startswith('image'):
+            await message.add_reaction('✅')
 
 client.run(TOKEN)
