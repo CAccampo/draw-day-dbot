@@ -1,3 +1,4 @@
-Requirements
+PyRequirements
 
 - python-dotenv
+- discord
