@@ -2,80 +2,92 @@ import os
 import discord
 from dotenv import load_dotenv
 from datetime import datetime
+from contextlib import closing
 
 import sqlite3
 db = sqlite3.connect('drawday.db')
 
 def create_tables(db):
-    cur = db.cursor()
-#     cur.execute('''
-#   CREATE TABLE IF NOT EXISTS artists (
-#       user_id integer PRIMARY KEY,
-#       current_streak_id integer,
-#       is_active_streak boolean NOT NULL,
-#   )''')
-    cur.execute('''
-    CREATE TABLE IF NOT EXISTS streaks (
-        streak_id integer PRIMARY KEY AUTOINCREMENT,
-        length_days integer NOT NULL,
-        start_day text NOT NULL,
-        end_day text NOT NULL,
-        user_id integer NOT NULL
-    )''')
-    
+    with closing(db.cursor()) as cur:
+    #   cur.execute('''
+    #   CREATE TABLE IF NOT EXISTS artists (
+    #       user_id integer PRIMARY KEY,
+    #       current_streak_id integer,
+    #       is_active_streak boolean NOT NULL,
+    #   )''')
+        cur.execute('''
+        CREATE TABLE IF NOT EXISTS streaks (
+            streak_id integer PRIMARY KEY AUTOINCREMENT,
+            length_days integer NOT NULL,
+            start_day text NOT NULL,
+            end_day text NOT NULL,
+            user_id integer NOT NULL
+        )''')
     db.commit()
 
-def should_start_new(msg, cur):
+def should_start_new(msg):
     #1. user has no streaks
+    with closing(db.cursor()) as cur:
+        cur.execute('''
+                    SELECT *
+                    FROM streaks
+                    WHERE user_id LIKE (?)
+                    ''', [msg.author.id])
+        if not cur.fetchall():
+            return True
     #2. user's last streak is broken
+
     return False
 
-def should_increment(msg, cur, date_now):
+def should_increment(msg, date_now):
     #user has submitted on a new day from previous
-    cur.execute('''
-                SELECT end_day
-                FROM streaks
-                WHERE user_id LIKE (?)
-                ORDER BY end_day
-                LIMIT 1''', [msg.author.id])
-    for i in cur.fetchall():
-        end_day = i[0]
-    
-    print(end_day, date_now)
-    if end_day < date_now:
-        return True
+    with closing(db.cursor()) as cur:
+        cur.execute('''
+                    SELECT end_day
+                    FROM streaks
+                    WHERE user_id LIKE (?)
+                    ORDER BY end_day
+                    LIMIT 1''', [msg.author.id])
+        fetch = cur.fetchall()
+        if fetch:
+            end_day = fetch[0][0]
+            if end_day < date_now:
+                return True
     return False
 
-def insert_new_streak(msg, cur, date_now):
-    cur.execute('''
-        INSERT INTO streaks (length_days, start_day, end_day, user_id)
-        VALUES (?, ?, ?, ?)
-        ''', [1, date_now, date_now, msg.author.id]
-    )
-    db.commit()
+def insert_new_streak(msg, date_now):
+    with closing(db.cursor()) as cur:
+        cur.execute('''
+            INSERT INTO streaks (length_days, start_day, end_day, user_id)
+            VALUES (?, ?, ?, ?)
+            ''', [1, date_now, date_now, msg.author.id]
+        )
+        db.commit()
 
-def increment_streak(msg, cur, date_now):
-    cur.execute('''
-        UPDATE streaks
-        SET length_days = length_days + 1
-        WHERE user_id = (?)
-        ''', [msg.author.id])
-    cur.execute('''
-        UPDATE streaks
-        SET end_day = (?)
-        WHERE user_id = (?)
-        ''', [date_now, msg.author.id])
-    db.commit()
+def increment_streak(msg, date_now):
+    with closing(db.cursor()) as cur:
+        cur.execute('''
+            UPDATE streaks
+            SET length_days = length_days + 1
+            WHERE user_id = (?)
+            ''', [msg.author.id])
+        cur.execute('''
+            UPDATE streaks
+            SET end_day = (?)
+            WHERE user_id = (?)
+            ''', [date_now, msg.author.id])
+        db.commit()
 
-async def reply_with_streak(msg, cur):
-    cur.execute('''
-                SELECT length_days
-                FROM streaks
-                WHERE user_id LIKE (?)
-                ORDER BY end_day
-                LIMIT 1''', [msg.author.id])
-    for i in cur.fetchall():
-        streak = i[0]
+async def reply_with_streak(msg):
+    with closing(db.cursor()) as cur:
+        cur.execute('''
+                    SELECT length_days
+                    FROM streaks
+                    WHERE user_id LIKE (?)
+                    ORDER BY end_day
+                    LIMIT 1''', [msg.author.id])
+        for i in cur.fetchall():
+            streak = i[0]
     await msg.reply(f'Your streak is {streak}. React here with ❌ to cancel BROKEN')
 
 
@@ -104,14 +116,13 @@ async def on_message(msg):
     '''
     for att in msg.attachments:
         if att.content_type.startswith('image'):
-            cur = db.cursor()
             date_now = datetime.now().strftime('%Y-%m-%d')
-            insert_new_streak(msg, cur, date_now)
-            await reply_with_streak(msg, cur)
-            
-            if should_increment(msg, cur, date_now):
-                increment_streak(msg, cur, date_now)
+            if should_start_new(msg):
+                insert_new_streak(msg, date_now)
+                await reply_with_streak(msg)
+            elif should_increment(msg, date_now):
+                increment_streak(msg, date_now)
                 await msg.add_reaction('✅')
-                await reply_with_streak(msg, cur)
+                await reply_with_streak(msg)
 
 client.run(TOKEN)
