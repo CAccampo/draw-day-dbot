@@ -8,24 +8,42 @@ import sqlite3
 db = sqlite3.connect('drawday.db')
 def create_tables(db):
     cur = db.cursor()
+#     cur.execute('''
+#   CREATE TABLE IF NOT EXISTS artists (
+#       user_id integer PRIMARY KEY,
+#       current_streak_id integer,
+#       is_active_streak boolean NOT NULL,
+#   )''')
     cur.execute('''
-CREATE TABLE IF NOT EXISTS streaks (
-    streak_id integer PRIMARY KEY AUTOINCREMENT,
-    length_days integer NOT NULL,
-    start_day text NOT NULL,
-    end_day text NOT NULL,
-    user_id integer NOT NULL
+    CREATE TABLE IF NOT EXISTS streaks (
+        streak_id integer PRIMARY KEY AUTOINCREMENT,
+        length_days integer NOT NULL,
+        start_day text NOT NULL,
+        end_day text NOT NULL,
+        user_id integer NOT NULL
     )''')
+    
     db.commit()
 
-def insert_new_streak(msg):
-    cur = db.cursor()
-    now = datetime.now()
+def insert_new_streak(msg, cur, now):
     cur.execute('''
         INSERT INTO streaks (length_days, start_day, end_day, user_id)
         VALUES (?, ?, ?, ?)
-        ''', [1, datetime.now(), datetime.now(), msg.author.id]
+        ''', [1, now, now, msg.author.id]
     )
+    db.commit()
+def increment_streak(msg, cur, now):
+    now = datetime.now()
+    cur.execute('''
+        UPDATE streaks
+        SET length_days = length_days + 1
+        WHERE user_id = (?)
+        ''', [msg.author.id])
+    cur.execute('''
+        UPDATE streaks
+        SET end_day = (?)
+        WHERE user_id = (?)
+        ''', [now, msg.author.id])
     db.commit()
 
 
@@ -55,12 +73,14 @@ async def on_message(msg):
     '''
     for att in msg.attachments:
         if att.content_type.startswith('image'):
-            insert_new_streak(msg)
+            cur = db.cursor()
+            now = datetime.now()
+            insert_new_streak(msg, cur, now)
+            increment_streak(msg, cur, now)
             await msg.add_reaction('✅')
-            await reply_with_streak(msg)
+            await reply_with_streak(msg, cur)
 
-async def reply_with_streak(msg):
-    cur = db.cursor()
+async def reply_with_streak(msg, cur):
     cur.execute('''
                 SELECT length_days
                 FROM streaks
