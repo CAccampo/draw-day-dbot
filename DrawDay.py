@@ -1,8 +1,10 @@
 import os
 import discord
 from dotenv import load_dotenv
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import closing
+
+from freezegun import freeze_time
 
 import sqlite3
 db = sqlite3.connect('drawday.db')
@@ -26,17 +28,21 @@ def create_tables(db):
     db.commit()
 
 def should_start_new(msg):
-    #1. user has no streaks
     with closing(db.cursor()) as cur:
         cur.execute('''
-                    SELECT *
+                    SELECT end_day
                     FROM streaks
                     WHERE user_id LIKE (?)
-                    ''', [msg.author.id])
-        if not cur.fetchall():
-            return True
-    #2. user's last streak is broken
-
+                    ORDER BY streak_id DESC
+                    LIMIT 1''', [msg.author.id])
+        fetch = cur.fetchall()
+        if not fetch:
+            return True #1. user has no streaks
+        else:
+            end_day = fetch[0][0]
+            yday = (datetime.now() - timedelta(1)).strftime('%Y-%m-%d')
+            if end_day < yday:
+                return True #2. user's last streak is broken
     return False
 
 def should_increment(msg, date_now):
@@ -46,7 +52,7 @@ def should_increment(msg, date_now):
                     SELECT end_day
                     FROM streaks
                     WHERE user_id LIKE (?)
-                    ORDER BY end_day
+                    ORDER BY streak_id DESC
                     LIMIT 1''', [msg.author.id])
         fetch = cur.fetchall()
         if fetch:
@@ -69,12 +75,22 @@ def increment_streak(msg, date_now):
         cur.execute('''
             UPDATE streaks
             SET length_days = length_days + 1
-            WHERE user_id = (?)
+            WHERE streak_id = (
+                SELECT streak_id
+                FROM streaks
+                WHERE user_id = (?)
+                ORDER BY streak_id DESC
+	            LIMIT 1);
             ''', [msg.author.id])
         cur.execute('''
             UPDATE streaks
             SET end_day = (?)
-            WHERE user_id = (?)
+            WHERE streak_id = (
+                SELECT streak_id
+                FROM streaks
+                WHERE user_id = (?)
+                ORDER BY streak_id DESC
+	            LIMIT 1);
             ''', [date_now, msg.author.id])
         db.commit()
 
@@ -84,7 +100,7 @@ async def reply_with_streak(msg):
                     SELECT length_days
                     FROM streaks
                     WHERE user_id LIKE (?)
-                    ORDER BY end_day
+                    ORDER BY streak_id DESC
                     LIMIT 1''', [msg.author.id])
         for i in cur.fetchall():
             streak = i[0]
@@ -109,20 +125,18 @@ async def on_message(msg):
     channel = msg.channel
     if msg.author == client.user:
         return
-    '''
-    TO DO:  
-            only check first image of day
-            cancellation with react
-    '''
+
     for att in msg.attachments:
         if att.content_type.startswith('image'):
-            date_now = datetime.now().strftime('%Y-%m-%d')
-            if should_start_new(msg):
-                insert_new_streak(msg, date_now)
-                await reply_with_streak(msg)
-            elif should_increment(msg, date_now):
-                increment_streak(msg, date_now)
-                await msg.add_reaction('✅')
-                await reply_with_streak(msg)
+            with freeze_time("2024-12-05"):
+                date_now = datetime.now().strftime('%Y-%m-%d')
+                if should_start_new(msg):
+                    insert_new_streak(msg, date_now)
+                    await reply_with_streak(msg)
+                    await msg.add_reaction('✅') #causes reply to hang if before
+                elif should_increment(msg, date_now):
+                    increment_streak(msg, date_now)
+                    await reply_with_streak(msg)
+                    await msg.add_reaction('✅') #causes reply to hang if before
 
 client.run(TOKEN)
