@@ -11,12 +11,6 @@ db = sqlite3.connect('drawday.db')
 
 def create_tables(db):
     with closing(db.cursor()) as cur:
-    #   cur.execute('''
-    #   CREATE TABLE IF NOT EXISTS artists (
-    #       user_id integer PRIMARY KEY,
-    #       current_streak_id integer,
-    #       is_active_streak boolean NOT NULL,
-    #   )''')
         cur.execute('''
         CREATE TABLE IF NOT EXISTS streaks (
             streak_id integer PRIMARY KEY AUTOINCREMENT,
@@ -103,8 +97,11 @@ async def reply_with_streak(msg):
                     ORDER BY streak_id DESC
                     LIMIT 1''', [msg.author.id])
         for i in cur.fetchall():
-            streak = i[0]
-    await msg.reply(f'Your streak is {streak}. React here with ❌ to cancel BROKEN')
+            streak = int(i[0])
+    reply = ''
+    if streak == 1:
+        reply += 'New streak created.\n'
+    await msg.reply(f'{reply}Streak: {streak}\n')
 
 
 
@@ -128,15 +125,15 @@ async def on_message(msg):
 
     for att in msg.attachments:
         if att.content_type.startswith('image'):
-            with freeze_time("2024-12-05"):
+            with freeze_time("2024-12-11"):
                 date_now = datetime.now().strftime('%Y-%m-%d')
                 if should_start_new(msg):
                     insert_new_streak(msg, date_now)
                     await reply_with_streak(msg)
-                    await msg.add_reaction('✅') #causes reply to hang if before
+                    await msg.add_reaction('✅')
                 elif should_increment(msg, date_now):
                     increment_streak(msg, date_now)
                     await reply_with_streak(msg)
-                    await msg.add_reaction('✅') #causes reply to hang if before
+                    await msg.add_reaction('✅') 
 
 client.run(TOKEN)
