@@ -1,5 +1,6 @@
 import os
 import discord
+from discord.ext import commands
 from dotenv import load_dotenv
 from datetime import datetime, timedelta
 from contextlib import closing
@@ -110,17 +111,22 @@ TOKEN = os.getenv('DISCORD_TOKEN')
 
 intents = discord.Intents.default()
 intents.message_content = True
-client = discord.Client(intents=intents)
+bot = commands.Bot(command_prefix='!', intents=intents)
 
-@client.event
+@bot.command()
+async def streak(ctx):
+    print(ctx)
+    
+
+@bot.event
 async def on_ready():
     create_tables(db)
-    print(f'{client.user} has connected to Discord!')
+    print(f'{bot.user} has connected to Discord!')
 
-@client.event
+@bot.event
 async def on_message(msg):
     channel = msg.channel
-    if msg.author == client.user:
+    if msg.author == bot.user:
         return
 
     for att in msg.attachments:
@@ -135,5 +141,6 @@ async def on_message(msg):
                     increment_streak(msg, date_now)
                     await reply_with_streak(msg)
                     await msg.add_reaction('✅') 
+    await bot.process_commands(msg)
 
-client.run(TOKEN)
+bot.run(TOKEN)
