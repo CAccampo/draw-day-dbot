@@ -22,38 +22,57 @@ def create_tables(db):
         )''')
     db.commit()
 
-def should_start_new(msg):
+def table_grab(msg, grab):
     with closing(db.cursor()) as cur:
         cur.execute('''
-                    SELECT end_day
-                    FROM streaks
-                    WHERE user_id LIKE (?)
-                    ORDER BY streak_id DESC
-                    LIMIT 1''', [msg.author.id])
+            SELECT *
+            FROM streaks
+            WHERE user_id LIKE (?)
+            ORDER BY streak_id DESC''', [msg.author.id])
         fetch = cur.fetchall()
-        if not fetch:
-            return True #1. user has no streaks
-        else:
-            end_day = fetch[0][0]
-            yday = (datetime.now() - timedelta(1)).strftime('%Y-%m-%d')
-            if end_day < yday:
-                return True #2. user's last streak is broken
-    return False
+        select_col = []
+        for streak_row in fetch:
+            select_col.append(streak_row[grab])
+        return select_col
+
+def last_grab(msg, grab):
+    fetch = table_grab(msg, grab)
+    if fetch:
+        return fetch[0]
+    return None
+
+
+def is_current_streak(msg):
+    end_day = last_grab(msg, 3)
+    yday = (datetime.now() + timedelta(1)).strftime('%Y-%m-%d')
+    if end_day and end_day < yday:
+        return False
+    return True
+
+
+def should_start_new(msg):
+    fetch = table_grab(msg, 3)
+    if not fetch:
+        print(1)
+        return True #1. user has no streaks
+    else:
+        print(2)
+        end_day = fetch[0]
+        yday = (datetime.now() - timedelta(1)).strftime('%Y-%m-%d')
+        if end_day < yday:
+            print(3)
+            return True #2. user's last streak is broken
+        return False
 
 def should_increment(msg, date_now):
     #user has submitted on a new day from previous
     with closing(db.cursor()) as cur:
-        cur.execute('''
-                    SELECT end_day
-                    FROM streaks
-                    WHERE user_id LIKE (?)
-                    ORDER BY streak_id DESC
-                    LIMIT 1''', [msg.author.id])
-        fetch = cur.fetchall()
+        fetch = table_grab(msg, 3)
         if fetch:
-            end_day = fetch[0][0]
-            if end_day < date_now:
-                return True
+            end_day = fetch[0]
+            if end_day:
+                if end_day < date_now:
+                    return True
     return False
 
 def insert_new_streak(msg, date_now):
@@ -90,27 +109,14 @@ def increment_streak(msg, date_now):
         db.commit()
 
 async def reply_with_streak(msg):
-    with closing(db.cursor()) as cur:
-        cur.execute('''
-                    SELECT length_days
-                    FROM streaks
-                    WHERE user_id LIKE (?)
-                    ORDER BY streak_id DESC
-                    LIMIT 1''', [msg.author.id])
-        for i in cur.fetchall():
-            streak = int(i[0])
-    reply = ''
-    if streak == 1:
-        reply += 'New streak created.\n'
-    await msg.reply(f'{reply}Streak: {streak}\n')
-def get_end_days(msg):
-    with closing(db.cursor()) as cur:
-        cur.execute('''
-            SELECT end_day
-            FROM streaks
-            WHERE user_id LIKE (?)
-            ORDER BY streak_id DESC''', [msg.author.id])
-        return cur.fetchall()
+    if is_current_streak(msg):
+        streak_status = f'Broken'
+    else:
+        streak_status = 'Ongoing'
+    start_day = last_grab(msg, 2)
+    end_day = last_grab(msg, 3)
+    streak = last_grab(msg, 1)
+    await msg.reply(f'Streak: {streak}\t {start_day} : {end_day}\nStatus: {streak_status}')
 
 
 load_dotenv()
@@ -121,23 +127,26 @@ intents.message_content = True
 bot = commands.Bot(command_prefix='!', intents=intents)
 
 @bot.command()
-async def streak(ctx):
-    await reply_with_streak(ctx)
+async def streak(msg):
+    #TO DO: STATE FIRST AND LAST DAY OF STREAK
+    await reply_with_streak(msg)
 @bot.command()
-async def find_break(ctx):
-    fetch = get_end_days(ctx)
+async def find_break(msg):
+    fetch = table_grab(msg, 3)
     today = datetime.now().strftime('%Y-%m-%d')
     end_day = ''
     if len(fetch) >= 2: #ADD check for currently broken streak
-        end_day = fetch[1][0]
-        await ctx.reply(f'Your Last streak was broken on {end_day}.')
+        end_day = fetch[1]
+        #TO DO: GET START DAY AND REPLY WITH LENGTH OF BREAK
+        await msg.reply(f'Your last streak was broken on {end_day}.')
     else:
-        await ctx.reply(f'Break not found')
+        await msg.reply(f'Break not found')
 
 @bot.event
 async def on_ready():
     create_tables(db)
     print(f'{bot.user} has connected to Discord!')
+    print(datetime.now())
 
 @bot.event
 async def on_message(msg):
@@ -147,16 +156,17 @@ async def on_message(msg):
 
     for att in msg.attachments:
         if att.content_type.startswith('image'):
-            with freeze_time("2024-12-14"):
-                date_now = datetime.now().strftime('%Y-%m-%d')
-                if should_start_new(msg):
-                    insert_new_streak(msg, date_now)
-                    await reply_with_streak(msg)
-                    await msg.add_reaction('✅')
-                elif should_increment(msg, date_now):
-                    increment_streak(msg, date_now)
-                    await reply_with_streak(msg)
-                    await msg.add_reaction('✅') 
+            date_now = datetime.now().strftime('%Y-%m-%d')
+            if should_start_new(msg):
+                print('new streak')
+                insert_new_streak(msg, date_now)
+                await reply_with_streak(msg)
+                await msg.add_reaction('✅')
+            elif should_increment(msg, date_now):
+                print('cont streak')
+                increment_streak(msg, date_now)
+                await reply_with_streak(msg)
+                await msg.add_reaction('✅') 
     await bot.process_commands(msg)
 
 bot.run(TOKEN)
