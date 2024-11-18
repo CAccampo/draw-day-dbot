@@ -103,7 +103,14 @@ async def reply_with_streak(msg):
     if streak == 1:
         reply += 'New streak created.\n'
     await msg.reply(f'{reply}Streak: {streak}\n')
-
+def get_end_days(msg):
+    with closing(db.cursor()) as cur:
+        cur.execute('''
+            SELECT end_day
+            FROM streaks
+            WHERE user_id LIKE (?)
+            ORDER BY streak_id DESC''', [msg.author.id])
+        return cur.fetchall()
 
 
 load_dotenv()
@@ -115,8 +122,17 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 @bot.command()
 async def streak(ctx):
-    print(ctx)
-    
+    await reply_with_streak(ctx)
+@bot.command()
+async def find_break(ctx):
+    fetch = get_end_days(ctx)
+    today = datetime.now().strftime('%Y-%m-%d')
+    end_day = ''
+    if len(fetch) >= 2: #ADD check for currently broken streak
+        end_day = fetch[1][0]
+        await ctx.reply(f'Your Last streak was broken on {end_day}.')
+    else:
+        await ctx.reply(f'Break not found')
 
 @bot.event
 async def on_ready():
@@ -131,7 +147,7 @@ async def on_message(msg):
 
     for att in msg.attachments:
         if att.content_type.startswith('image'):
-            with freeze_time("2024-12-11"):
+            with freeze_time("2024-12-14"):
                 date_now = datetime.now().strftime('%Y-%m-%d')
                 if should_start_new(msg):
                     insert_new_streak(msg, date_now)
