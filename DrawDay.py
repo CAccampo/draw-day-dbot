@@ -44,8 +44,8 @@ def last_grab(msg, grab):
 
 def is_current_streak(msg):
     end_day = last_grab(msg, 3)
-    yday = (datetime.now() + timedelta(1)).strftime('%Y-%m-%d')
-    if end_day and end_day < yday:
+    y_day = (datetime.now() - timedelta(1)).strftime('%Y-%m-%d')
+    if end_day and end_day < y_day:
         return False
     return True
 
@@ -53,16 +53,10 @@ def is_current_streak(msg):
 def should_start_new(msg):
     fetch = table_grab(msg, 3)
     if not fetch:
-        print(1)
         return True #1. user has no streaks
-    else:
-        print(2)
-        end_day = fetch[0]
-        yday = (datetime.now() - timedelta(1)).strftime('%Y-%m-%d')
-        if end_day < yday:
-            print(3)
-            return True #2. user's last streak is broken
-        return False
+    elif not is_current_streak(msg) == True: #2 streak broken
+        return True
+    return False
 
 def should_increment(msg, date_now):
     #user has submitted on a new day from previous
@@ -110,9 +104,9 @@ def increment_streak(msg, date_now):
 
 async def reply_with_streak(msg):
     if is_current_streak(msg):
-        streak_status = f'Broken'
-    else:
         streak_status = 'Ongoing'
+    else:
+        streak_status = 'Broken'
     start_day = last_grab(msg, 2)
     end_day = last_grab(msg, 3)
     streak = last_grab(msg, 1)
@@ -128,28 +122,30 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 
 @bot.command()
 async def streak(msg):
-    #TO DO: STATE FIRST AND LAST DAY OF STREAK
     await reply_with_streak(msg)
+
 @bot.command()
 async def find_break(msg):
     fetch = table_grab(msg, 3)
     today = datetime.now().strftime('%Y-%m-%d')
-    end_day = ''
-    if len(fetch) >= 2: #ADD check for currently broken streak
-        end_day = fetch[1]
-        #TO DO: GET START DAY AND REPLY WITH LENGTH OF BREAK
-        await msg.reply(f'Your last streak was broken on {end_day}.')
-    else:
-        await msg.reply(f'Break not found')
+    if fetch:
+        if not is_current_streak(msg):      #if last 1 is broken
+            break_start = fetch[0]
+            await msg.reply(f'Your last streak was broken on {break_start}.')
+        elif len(fetch) >= 2:               #if last 1 broken and new ongoing
+            break_start = fetch[1]          
+            break_end = last_grab(msg, 2)   #start of current streak
+            await msg.reply(f'Your last streak was broken on {break_start}, and a new one began on {break_end}')
+    await msg.reply(f'Break not found')
 
 @bot.event
 async def on_ready():
     create_tables(db)
     print(f'{bot.user} has connected to Discord!')
-    print(datetime.now())
 
 @bot.event
 async def on_message(msg):
+    print(datetime.now())
     channel = msg.channel
     if msg.author == bot.user:
         return
@@ -169,4 +165,7 @@ async def on_message(msg):
                 await msg.add_reaction('✅') 
     await bot.process_commands(msg)
 
+freezer = freeze_time("2024-12-26")
+freezer.start()
 bot.run(TOKEN)
+freezer.stop()
