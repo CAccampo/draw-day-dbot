@@ -18,7 +18,8 @@ def create_tables(db):
             length_days integer NOT NULL,
             start_day text NOT NULL,
             end_day text NOT NULL,
-            user_id integer NOT NULL
+            user_id integer NOT NULL,
+            is_frozen integer
         )''')
     db.commit()
 
@@ -41,14 +42,17 @@ def last_grab(msg, grab):
         return fetch[0]
     return None
 
-
 def is_current_streak(msg):
     end_day = last_grab(msg, 3)
     y_day = (datetime.now() - timedelta(1)).strftime('%Y-%m-%d')
+    if is_frozen(msg):
+        return True
     if end_day and end_day < y_day:
         return False
     return True
 
+def is_frozen(msg):
+    return bool(last_grab(msg, 5))
 
 def should_start_new(msg):
     fetch = table_grab(msg, 3)
@@ -110,7 +114,7 @@ async def reply_with_streak(msg):
     start_day = last_grab(msg, 2)
     end_day = last_grab(msg, 3)
     streak = last_grab(msg, 1)
-    await msg.reply(f'Streak: {streak}\t {start_day} : {end_day}\nStatus: {streak_status}')
+    await msg.reply(f'Streak: {streak}\t {start_day} : {end_day}\nStatus:\t{streak_status}\tFrozen:\t{is_frozen(msg)}')
 
 
 load_dotenv()
@@ -123,7 +127,6 @@ bot = commands.Bot(command_prefix='!', intents=intents)
 @bot.command()
 async def streak(msg):
     await reply_with_streak(msg)
-
 @bot.command()
 async def find_break(msg):
     fetch = table_grab(msg, 3)
@@ -136,7 +139,39 @@ async def find_break(msg):
             break_start = fetch[1]          
             break_end = last_grab(msg, 2)   #start of current streak
             await msg.reply(f'Your last streak was broken on {break_start}, and a new one began on {break_end}')
-    await msg.reply(f'Break not found')
+        else:
+            await msg.reply(f'Break not found')
+    else:
+        await msg.reply(f'Break not found')
+@bot.command()
+async def freeze(msg, arg=None):
+    if arg:
+        arg = int(arg)
+        if not arg == 0 and not arg == 1:
+            await msg.reply('Freeze:\t\t!chg_freeze 1\nUnfreeze:\t!chg_freeze 0')
+        else:
+            if is_current_streak(msg):
+                with closing(db.cursor()) as cur:
+                    cur.execute('''
+                        UPDATE streaks
+                        SET is_frozen = (?)
+                        WHERE streak_id = (
+                            SELECT streak_id
+                            FROM streaks
+                            WHERE user_id = (?)
+                            ORDER BY streak_id DESC
+                            LIMIT 1);
+                        ''', [arg, msg.author.id])
+                db.commit()
+                if arg == 0:
+                    await msg.message.add_reaction('🔥')
+                elif arg == 1:
+                    await msg.message.add_reaction('🧊')
+            else:
+                await msg.reply(f'Can\'t freeze broken streak.')
+    else:
+        await msg.reply(f'Frozen:\t{is_frozen(msg)}')
+
 
 @bot.event
 async def on_ready():
@@ -165,7 +200,7 @@ async def on_message(msg):
                 await msg.add_reaction('✅') 
     await bot.process_commands(msg)
 
-freezer = freeze_time("2024-12-26")
+freezer = freeze_time("2024-11-29")
 freezer.start()
 bot.run(TOKEN)
 freezer.stop()
